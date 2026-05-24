@@ -69,6 +69,7 @@ COPY --chown=nodejs:nodejs --from=builder /app/packages/store/generated ./packag
 # Copy compiled @repo/redisstream package (Redis Streams helpers).
 COPY --chown=nodejs:nodejs --from=builder /app/packages/redisstream/dist ./packages/redisstream/dist
 COPY --chown=nodejs:nodejs --from=builder /app/packages/redisstream/package.json ./packages/redisstream/package.json
+COPY --chown=nodejs:nodejs --from=builder /app/packages/redisstream/node_modules ./packages/redisstream/node_modules
 
 # Copy the full node_modules from the builder (includes pnpm virtual store with
 # workspace symlinks). The pruned workspace ensures only relevant packages are here.
