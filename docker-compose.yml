@@ -1,0 +1,63 @@
+services:
+  redis:
+    image: redis:latest
+    container_name: betterstack1-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    image: betterstack1-backend:local
+    container_name: betterstack1-backend
+    env_file:
+      - packages/store/.env
+      - apps/backend/.env
+    environment:
+      NODE_OPTIONS: "--dns-result-order=ipv4first"
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+
+  pusher:
+    image: betterstack1-pusher:local
+    container_name: betterstack1-pusher
+    env_file:
+      - packages/store/.env
+    environment:
+      NODE_OPTIONS: "--dns-result-order=ipv4first"
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    image: betterstack1-worker:local
+    container_name: betterstack1-worker
+    env_file:
+      - packages/store/.env
+      - apps/worker/.env
+    environment:
+      NODE_OPTIONS: "--dns-result-order=ipv4first"
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    image: betterstack1-web:local
+    container_name: betterstack1-web
+    environment:
+      BACKEND_URL: "http://backend:3001"
+      HOSTNAME: "0.0.0.0"
+      PORT: "3000"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped

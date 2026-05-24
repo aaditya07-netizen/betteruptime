@@ -1,0 +1,34 @@
+# Dependencies
+node_modules
+**/node_modules
+
+# Version control
+.git
+.gitignore
+
+# Turbo cache
+.turbo
+**/.turbo
+
+# Build outputs
+dist
+**/.next
+**/dist
+
+# Logs
+*.log
+**/*.log
+
+# Environment files (secrets)
+.env*
+**/.env*
+
+# PID files
+*.pid
+**/*.pid
+
+# Codex runtime
+.codex-runtime
+
+# IDE
+.vscode

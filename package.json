@@ -3,7 +3,11 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev",
+    "dev": "pnpm build && bash scripts/start-dev.sh",
+    "dev:stop": "bash scripts/stop-dev.sh",
+    "docker:build": "bash scripts/docker-build.sh",
+    "docker:up": "pnpm docker:build && docker compose up -d",
+    "docker:down": "docker compose down",
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types"

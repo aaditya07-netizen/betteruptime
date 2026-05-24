@@ -17,6 +17,7 @@ coverage
 
 # Turbo
 .turbo
+.codex-runtime/
 
 # Vercel
 .vercel

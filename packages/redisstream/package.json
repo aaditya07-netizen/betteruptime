@@ -1,0 +1,32 @@
+{
+  "name": "@repo/redisstream",
+  "version": "1.0.0",
+  "description": "",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "check-types": "tsc --noEmit"
+  },
+  "exports": {
+    "./components": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./componets": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "redis": "^5.12.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "typescript": "^6.0.3",
+    "@repo/typescript-config": "workspace:*"
+  }
+}

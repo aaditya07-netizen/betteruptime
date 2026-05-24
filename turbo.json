@@ -1,6 +1,7 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "tui",
+  "globalEnv": ["BACKEND_URL"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
@@ -16,6 +17,21 @@
     "dev": {
       "cache": false,
       "persistent": true
+    },
+    "db:generate": {
+      "cache": false
+    },
+    "backend#build": {
+      "dependsOn": ["^build", "db:generate"],
+      "outputs": ["dist/**"]
+    },
+    "worker#build": {
+      "dependsOn": ["^build", "db:generate"],
+      "outputs": ["dist/**"]
+    },
+    "pusher#build": {
+      "dependsOn": ["^build", "db:generate"],
+      "outputs": ["dist/**"]
     }
   }
 }
