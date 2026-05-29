@@ -71,6 +71,18 @@ jobs:
           token: ${{ secrets.PAT }}
           path: argocd-repo
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate ArgoCD repo token
+        env:
+          ARGOCD_PAT: ${{ secrets.PAT }}
+        run: |
+          set -e
+
+          if [ -z "$ARGOCD_PAT" ]; then
+            echo "Missing PAT secret. Add a PAT with read/write Contents access to ${MANIFEST_REPO}."
+            exit 1
+          fi
 
       - name: Update Kubernetes image tags
         working-directory: argocd-repo
@@ -84,6 +96,8 @@ jobs:
 
       - name: Commit and push manifest changes
         working-directory: argocd-repo
+        env:
+          ARGOCD_PAT: ${{ secrets.PAT }}
         run: |
           set -e
 
@@ -98,4 +112,4 @@ jobs:
           fi
 
           git commit -m "Update Betteruptime images to ${GITHUB_SHA}"
-          git push origin main
+          git push "https://x-access-token:${ARGOCD_PAT}@github.com/${MANIFEST_REPO}.git" main
