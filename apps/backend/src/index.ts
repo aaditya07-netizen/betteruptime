@@ -5,7 +5,7 @@ import { readFileSync } from "fs";
 const app = express();
 import {prismaClient} from "@repo/store/client";
 import { authMiddleware } from "./middleware.js";
-import { AuthInput, WebsiteInput } from "./types.js";
+import { AuthInput, OAuthInput, WebsiteInput } from "./types.js";
 
 app.use(express.json());
 
@@ -57,6 +57,38 @@ function verifyPassword(password: string, storedPassword: string) {
 
     return storedHash.length === incomingHash.length && timingSafeEqual(storedHash, incomingHash);
 }
+
+function signUserToken(userId: string) {
+    return jwt.sign({
+        sub: userId
+    }, process.env.JWT_SECRET!)
+}
+
+app.get("/websites", authMiddleware, async (req, res) => {
+    const websites = await prismaClient.website.findMany({
+        where: {
+            user_id: req.userId!,
+        },
+        orderBy: {
+            time_added: "desc",
+        },
+        include: {
+            ticks: {
+                orderBy: {
+                    createdAt: "desc",
+                },
+                take: 1,
+            },
+        },
+    });
+
+    res.json({
+        websites: websites.map(({ ticks, ...website }) => ({
+            ...website,
+            latest_tick: ticks[0] ?? null,
+        })),
+    });
+});
 
 app.post("/website", authMiddleware, async (req, res) => {
     const data = WebsiteInput.safeParse(req.body);
@@ -153,14 +185,34 @@ app.post("/user/signin", async (req, res) => {
         return;
     }
 
-    let token = jwt.sign({
-        sub: user.id
-    }, process.env.JWT_SECRET!)
+    res.json({
+        jwt: signUserToken(user.id)
+    })
+})
 
+app.post("/user/oauth", async (req, res) => {
+    const data = OAuthInput.safeParse(req.body);
+    if (!data.success) {
+        res.status(403).send("");
+        return;
+    }
+
+    const username = data.data.email.toLowerCase();
+    const user = await prismaClient.user.upsert({
+        where: {
+            username,
+        },
+        update: {},
+        create: {
+            username,
+            password: hashPassword(`oauth:${randomBytes(32).toString("hex")}`),
+        },
+    });
 
     res.json({
-        jwt: token
-    })
+        id: user.id,
+        jwt: signUserToken(user.id),
+    });
 })
 
 app.listen(process.env.PORT || 3001);

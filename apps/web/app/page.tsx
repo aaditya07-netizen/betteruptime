@@ -1,9 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { signIn, signOut, useSession } from "next-auth/react";
 import styles from "./page.module.css";
 
-type AuthMode = "signin" | "signup";
 type SiteStatus = "Up" | "Down" | "Unknown";
 
 type TrackedSite = {
@@ -25,11 +25,9 @@ type StatusResponse = {
   } | null;
 };
 
-const STORAGE_KEY = "betterstack.web.state";
-
-function initialUsername() {
-  return `user-${Math.random().toString(36).slice(2, 8)}`;
-}
+type WebsitesResponse = {
+  websites: StatusResponse[];
+};
 
 function statusLabel(site: TrackedSite) {
   if (site.status === "Unknown") {
@@ -39,49 +37,27 @@ function statusLabel(site: TrackedSite) {
   return site.status;
 }
 
+function normalizeSite(site: StatusResponse): TrackedSite {
+  return {
+    id: site.id,
+    url: site.url,
+    status: site.latest_tick?.status ?? "Unknown",
+    responseTimeMs: site.latest_tick?.response_time_ms ?? null,
+    checkedAt: site.latest_tick?.createdAt ?? null,
+  };
+}
+
 export default function Home() {
-  const [authMode, setAuthMode] = useState<AuthMode>("signup");
-  const [username, setUsername] = useState(initialUsername);
-  const [password, setPassword] = useState("password123");
-  const [token, setToken] = useState("");
-  const [userId, setUserId] = useState("");
+  const { data: session, status: authStatus } = useSession();
+  const backendToken = session?.backendJwt ?? "";
+  const userId = session?.backendUserId ?? "";
+  const isSignedIn = authStatus === "authenticated" && Boolean(backendToken);
+
   const [url, setUrl] = useState("https://google.com");
   const [manualWebsiteId, setManualWebsiteId] = useState("");
   const [sites, setSites] = useState<TrackedSite[]>([]);
   const [message, setMessage] = useState("");
   const [isBusy, setIsBusy] = useState(false);
-
-  useEffect(() => {
-    const saved = window.localStorage.getItem(STORAGE_KEY);
-    if (!saved) {
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(saved) as {
-        token?: string;
-        userId?: string;
-        sites?: TrackedSite[];
-      };
-
-      setToken(parsed.token ?? "");
-      setUserId(parsed.userId ?? "");
-      setSites(parsed.sites ?? []);
-    } catch {
-      window.localStorage.removeItem(STORAGE_KEY);
-    }
-  }, []);
-
-  useEffect(() => {
-    window.localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        token,
-        userId,
-        sites,
-      }),
-    );
-  }, [token, userId, sites]);
 
   const summary = useMemo(() => {
     const up = sites.filter((site) => site.status === "Up").length;
@@ -91,15 +67,15 @@ export default function Home() {
     return { up, down, waiting };
   }, [sites]);
 
-  async function request<T>(
+  const request = useCallback(async <T,>(
     path: string,
     options: RequestInit = {},
-  ): Promise<T> {
+  ): Promise<T> => {
     const response = await fetch(path, {
       ...options,
       headers: {
         "content-type": "application/json",
-        ...(token ? { authorization: token } : {}),
+        ...(backendToken ? { authorization: `Bearer ${backendToken}` } : {}),
         ...options.headers,
       },
     });
@@ -109,39 +85,48 @@ export default function Home() {
     }
 
     return response.json() as Promise<T>;
-  }
+  }, [backendToken]);
 
-  async function handleAuth(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  const loadWebsites = useCallback(async (successMessage?: string) => {
+    if (!backendToken) {
+      setSites([]);
+      return;
+    }
+
     setIsBusy(true);
     setMessage("");
 
     try {
-      if (authMode === "signup") {
-        const createdUser = await request<{ id: string }>("/api/auth/signup", {
-          method: "POST",
-          body: JSON.stringify({ username, password }),
-        });
-        setUserId(createdUser.id);
-      }
+      const response = await request<WebsitesResponse>("/api/websites");
+      setSites(response.websites.map(normalizeSite));
 
-      const signedIn = await request<{ jwt: string }>("/api/auth/signin", {
-        method: "POST",
-        body: JSON.stringify({ username, password }),
-      });
-      setToken(signedIn.jwt);
-      setMessage(authMode === "signup" ? "Account created and signed in." : "Signed in.");
+      if (successMessage) {
+        setMessage(successMessage);
+      }
     } catch {
-      setMessage("Auth failed. Check the backend and credentials.");
+      setMessage("Could not load your saved websites.");
     } finally {
       setIsBusy(false);
     }
-  }
+  }, [backendToken, request]);
+
+  useEffect(() => {
+    if (authStatus === "loading") {
+      return;
+    }
+
+    if (!backendToken) {
+      setSites([]);
+      return;
+    }
+
+    void loadWebsites();
+  }, [authStatus, backendToken, loadWebsites]);
 
   async function addWebsite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!token) {
+    if (!backendToken) {
       setMessage("Sign in before adding a website.");
       return;
     }
@@ -166,7 +151,7 @@ export default function Home() {
         ...current.filter((site) => site.id !== created.id),
       ]);
       setManualWebsiteId(created.id);
-      setMessage("Website added. Run the pusher and worker to collect ticks.");
+      setMessage("Website added. It will still be here after you sign back in.");
     } catch {
       setMessage("Could not add website. Use a full URL such as https://example.com.");
     } finally {
@@ -175,7 +160,7 @@ export default function Home() {
   }
 
   async function refreshStatus(websiteId: string) {
-    if (!token) {
+    if (!backendToken) {
       setMessage("Sign in before checking status.");
       return;
     }
@@ -185,13 +170,7 @@ export default function Home() {
 
     try {
       const status = await request<StatusResponse>(`/api/status/${websiteId}`);
-      const nextSite: TrackedSite = {
-        id: status.id,
-        url: status.url,
-        status: status.latest_tick?.status ?? "Unknown",
-        responseTimeMs: status.latest_tick?.response_time_ms ?? null,
-        checkedAt: status.latest_tick?.createdAt ?? null,
-      };
+      const nextSite = normalizeSite(status);
 
       setSites((current) => [
         nextSite,
@@ -205,11 +184,11 @@ export default function Home() {
     }
   }
 
-  function signOut() {
-    setToken("");
-    setUserId("");
+  function handleSignOut() {
     setSites([]);
-    setMessage("Signed out locally.");
+    setManualWebsiteId("");
+    setMessage("");
+    void signOut({ callbackUrl: "/" });
   }
 
   return (
@@ -220,8 +199,8 @@ export default function Home() {
           <h1>Uptime checks from your monorepo backend</h1>
         </div>
         <div className={styles.connection}>
-          <span className={token ? styles.liveDot : styles.offlineDot} />
-          {token ? "Signed in" : "Signed out"}
+          <span className={isSignedIn ? styles.liveDot : styles.offlineDot} />
+          {isSignedIn ? "Signed in" : "Signed out"}
         </div>
       </section>
 
@@ -246,52 +225,28 @@ export default function Home() {
 
       <div className={styles.workspace}>
         <aside className={styles.controlPanel} aria-label="Controls">
-          <form className={styles.form} onSubmit={handleAuth}>
-            <div className={styles.segmented} role="tablist" aria-label="Auth mode">
-              <button
-                type="button"
-                className={authMode === "signup" ? styles.activeSegment : ""}
-                onClick={() => setAuthMode("signup")}
-              >
-                Sign up
-              </button>
-              <button
-                type="button"
-                className={authMode === "signin" ? styles.activeSegment : ""}
-                onClick={() => setAuthMode("signin")}
-              >
-                Sign in
-              </button>
+          <section className={styles.authSummary} aria-label="Account">
+            <div>
+              <p className={styles.eyebrow}>Account</p>
+              <h2>{session?.user?.name ?? "Google sign in"}</h2>
+              <p>{session?.user?.email ?? "Use Google to save websites to your account."}</p>
             </div>
 
-            <label>
-              Username
-              <input
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-                autoComplete="username"
-              />
-            </label>
-            <label>
-              Password
-              <input
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                type="password"
-                autoComplete={authMode === "signup" ? "new-password" : "current-password"}
-              />
-            </label>
-
-            <button className={styles.primaryButton} disabled={isBusy}>
-              {authMode === "signup" ? "Create account" : "Sign in"}
-            </button>
-
-            {token ? (
-              <button className={styles.secondaryButton} type="button" onClick={signOut}>
+            {isSignedIn ? (
+              <button className={styles.secondaryButton} type="button" onClick={handleSignOut}>
                 Sign out
               </button>
-            ) : null}
-          </form>
+            ) : (
+              <button
+                className={styles.primaryButton}
+                type="button"
+                disabled={authStatus === "loading"}
+                onClick={() => void signIn("google", { callbackUrl: "/" })}
+              >
+                Continue with Google
+              </button>
+            )}
+          </section>
 
           <form className={styles.form} onSubmit={addWebsite}>
             <label>
@@ -303,7 +258,7 @@ export default function Home() {
                 inputMode="url"
               />
             </label>
-            <button className={styles.primaryButton} disabled={isBusy || !token}>
+            <button className={styles.primaryButton} disabled={isBusy || !isSignedIn}>
               Add website
             </button>
           </form>
@@ -323,11 +278,17 @@ export default function Home() {
                 placeholder="Paste an existing website id"
               />
             </label>
-            <button className={styles.secondaryButton} disabled={isBusy || !manualWebsiteId}>
+            <button
+              className={styles.secondaryButton}
+              disabled={isBusy || !manualWebsiteId || !isSignedIn}
+            >
               Check status
             </button>
           </form>
 
+          {session?.error === "BackendAuthFailed" ? (
+            <p className={styles.message}>Google signed in, but backend account setup failed.</p>
+          ) : null}
           {message ? <p className={styles.message}>{message}</p> : null}
           {userId ? <p className={styles.meta}>User id: {userId}</p> : null}
         </aside>
@@ -341,9 +302,9 @@ export default function Home() {
             <button
               className={styles.secondaryButton}
               type="button"
-              disabled={isBusy || sites.length === 0}
+              disabled={isBusy || !isSignedIn}
               onClick={() => {
-                void Promise.all(sites.map((site) => refreshStatus(site.id)));
+                void loadWebsites("Websites refreshed.");
               }}
             >
               Refresh all
@@ -358,7 +319,11 @@ export default function Home() {
                 <span />
                 <span />
               </div>
-              <p>Add a website to begin tracking its latest uptime tick.</p>
+              <p>
+                {isSignedIn
+                  ? "Add a website to begin tracking its latest uptime tick."
+                  : "Sign in to load your saved websites."}
+              </p>
             </div>
           ) : (
             <div className={styles.siteList}>

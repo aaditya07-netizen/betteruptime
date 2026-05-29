@@ -120,6 +120,29 @@
   padding: 16px;
 }
 
+.authSummary {
+  display: grid;
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #d5dfdb;
+}
+
+.authSummary h2 {
+  overflow-wrap: anywhere;
+  color: #17231f;
+  font-size: 18px;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+.authSummary p:not(.eyebrow) {
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+  color: #66756f;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .monitor {
   min-height: 512px;
   padding: 18px;
